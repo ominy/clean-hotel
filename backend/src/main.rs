@@ -12,20 +12,26 @@ use std::net::SocketAddr;
 
 use bb8::{Pool, PooledConnection};
 use bb8_postgres::PostgresConnectionManager;
-use tokio_postgres::{config::Config, NoTls};
+use tokio_postgres::{config::Config, NoTls, Row};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use uuid::Uuid;
 
+use serde_json::{from_value, value::Value};
+
+use axum_macros::debug_handler;
+
+mod modules;
+
 #[tokio::main]
 async fn main() {
-    // tracing_subscriber::registry()
-    //     .with(
-    //         tracing_subscriber::EnvFilter::try_from_default_env()
-    //             .unwrap_or_else(|_| "example_tokio_postgres=debug".into()),
-    //     )
-    //     .with(tracing_subscriber::fmt::layer())
-    //     .init();
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "example_tokio_postgres=debug".into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
 
     /* let manager = PostgresConnectionManager::new(
         Config {
@@ -48,10 +54,11 @@ async fn main() {
             "/",
             get(using_connection_pool_extractor).post(using_connection_pool_extractor),
         )
+        .route("/rooms", get(get_rooms))
         .with_state(pool);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-    // tracing::debug!("listening on {}", addr);
+    tracing::debug!("listening on {}", addr);
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
         .await
@@ -66,20 +73,19 @@ async fn using_connection_pool_extractor(
     let conn = pool.get().await.map_err(internal_error)?;
 
     let rows = conn
-        .query("select * from hotels", &[])
+        .query("select * from Rooms", &[])
         .await
         .map_err(internal_error)?;
 
-    Ok(rows
+    println!("{:#?}", rows);
+
+    let hotels = rows
         .into_iter()
-        .map(|row| match row.try_get::<_, String>("name") {
-            Ok(name) => format!("{}\n", name),
-            Err(e) => {
-                tracing::error!(error = %e, "failed to get name");
-                "unknown".into()
-            }
-        })
-        .collect::<String>())
+        .map(|row| row.get::<_, String>("number"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    Ok(hotels)
 }
 
 // async fn using_connection_extractor(
@@ -113,6 +119,7 @@ async fn using_connection_pool_extractor(
 //     }
 // }
 //
+
 fn internal_error<E>(err: E) -> (StatusCode, String)
 where
     E: std::error::Error,
